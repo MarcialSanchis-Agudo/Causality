@@ -340,16 +340,17 @@ class VariationalAutoencoder(Autoencoder):
 
 ## Wrapper of an autoencoder using lightning
 class Autoencoder_PL(pl.LightningModule):
-    def __init__(self, latent_dim, in_shape, input_channels, encoder, decoder, learning_rate=1e-3, lr_decay=0.999):
+    def __init__(self, latent_dim, in_shape, input_channels, encoder, decoder, reduction='mean', learning_rate=1e-3, lr_decay=0.999):
         super(Autoencoder_PL, self).__init__()
-        self.lat_dim  = latent_dim
-        self.in_shape = in_shape
-        self.inp_chan = input_channels
-        self.N        = reduce(mul, in_shape)
-        self.encoder  = encoder
-        self.decoder  = decoder
+        self.lat_dim       = latent_dim
+        self.in_shape      = in_shape
+        self.inp_chan      = input_channels
+        self.N             = reduce(mul, in_shape)
+        self.encoder       = encoder
+        self.decoder       = decoder
+        self.reduction     = reduction
         self.learning_rate = learning_rate
-        self.lr_decay = lr_decay
+        self.lr_decay      = lr_decay
       
     def _lossfunc(self, x, recon_x, reduction):
         return  F.mse_loss(recon_x.view(-1, self.N), x.view(-1, self.N),reduction=reduction)
@@ -361,13 +362,13 @@ class Autoencoder_PL(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         recon, z = self(batch)
-        loss = self._lossunch(batch, recon, reduction='mean')
+        loss = self._lossfunc(batch, recon, reduction=self.reduction)
         self.log('train_loss', loss, prog_bar=True, on_step=False, on_epoch=True)
         return loss
     
     def validation_step(self, batch, batch_idx):
         recon, z = self(batch)
-        loss = self._lossfunc(batch, recon, reduction='mean')
+        loss = self._lossfunc(batch, recon, reduction=self.reduction)
         self.log('val_loss', loss, prog_bar=True, on_step=False, on_epoch=True)
         return loss
     
@@ -434,8 +435,8 @@ class Autoencoder_PL(pl.LightningModule):
 
 ## Wrapper of a variational autoencoder using lightning
 class VariationalAutoencoder_PL(Autoencoder_PL):
-    def __init__(self, latent_dim, in_shape, input_channels, betasch, encoder, decoder, learning_rate=1e-4, lr_decay=0.999):
-        super(VariationalAutoencoder_PL, self).__init__(latent_dim, in_shape, input_channels, encoder, decoder, learning_rate, lr_decay)
+    def __init__(self, latent_dim, in_shape, input_channels, betasch, encoder, decoder, reduction, learning_rate=1e-4, lr_decay=0.999):
+        super(VariationalAutoencoder_PL, self).__init__(latent_dim, in_shape, input_channels, encoder, decoder, reduction, learning_rate, lr_decay)
         self.betasch = betasch # Beta scheduler instance
         self.beta = 0.0 # Initial Beta value
 
@@ -445,10 +446,14 @@ class VariationalAutoencoder_PL(Autoencoder_PL):
         sample = mu + std*epsilon
         return  sample
              
-    def _kld(self, mu, logvar):
-        mum     = torch.mean(mu, axis=0)
-        logvarm = torch.mean(logvar, axis=0)
-        return 0.5*torch.sum(1 + logvar - mum**2 - logvarm.exp())
+    def _kld(self, mu, logvar, reduction):
+        # mum     = torch.mean(mu, axis=0)
+        # logvarm = torch.mean(logvar, axis=0)
+        kld_element = 0.5 * (1 + logvar - mu**2 - logvar.exp())
+        if reduction == 'sum':
+            return torch.sum(kld_element)
+        elif reduction == 'mean':
+            return torch.mean(torch.sum(kld_element, dim=1))
     
     def forward(self, x):
         mu, logvar = self.encoder(x)
@@ -458,10 +463,17 @@ class VariationalAutoencoder_PL(Autoencoder_PL):
     
     def on_training_epoch_start(self):
         self.beta = self.betasch.getBeta(self.trainer.current_epoch)
+        self.log('train_beta', self.beta, prog_bar=False, on_step=False, on_epoch=True, sync_dist=True)
+
+    def on_validation_epoch_start(self):
+    # Registrar el valor de beta en el log durante la validación
+        self.log('val_beta', self.beta, prog_bar=False, on_step=False, on_epoch=True, sync_dist=True)
+
+
 
     def training_step(self, batch, batch_idx):
         recon, mu, logvar, _ = self(batch)
-        mse_loss = self._lossfunc(batch, recon, reduction='sum')
+        mse_loss = self._lossfunc(batch, recon, reduction=self.reduction)
         kld_loss = self._kld(mu, logvar)
         loss = mse_loss - self.beta * kld_loss
         self.log('train_loss', loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True)
@@ -471,7 +483,7 @@ class VariationalAutoencoder_PL(Autoencoder_PL):
     
     def validation_step(self, batch, batch_idx):
         recon, mu, logvar, _ = self(batch)
-        mse_loss = self._lossfunc(batch, recon, reduction='sum')
+        mse_loss = self._lossfunc(batch, recon, reduction=self.reduction)
         kld_loss = self._kld(mu, logvar)
         loss = mse_loss - self.beta * kld_loss 
         self.log('val_loss', loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True)
