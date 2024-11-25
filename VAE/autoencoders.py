@@ -474,7 +474,7 @@ class VariationalAutoencoder_PL(Autoencoder_PL):
     def training_step(self, batch, batch_idx):
         recon, mu, logvar, _ = self(batch)
         mse_loss = self._lossfunc(batch, recon, reduction=self.reduction)
-        kld_loss = self._kld(mu, logvar)
+        kld_loss = self._kld(mu, logvar, self.reduction)
         loss = mse_loss - self.beta * kld_loss
         self.log('train_loss', loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True)
         self.log('mse_loss', mse_loss, prog_bar=False, on_step=False, on_epoch=True, sync_dist=True)
@@ -484,7 +484,7 @@ class VariationalAutoencoder_PL(Autoencoder_PL):
     def validation_step(self, batch, batch_idx):
         recon, mu, logvar, _ = self(batch)
         mse_loss = self._lossfunc(batch, recon, reduction=self.reduction)
-        kld_loss = self._kld(mu, logvar)
+        kld_loss = self._kld(mu, logvar, self.reduction)
         loss = mse_loss - self.beta * kld_loss 
         self.log('val_loss', loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True)
         self.log('val_mse', mse_loss, prog_bar=False, on_step=False, on_epoch=True, sync_dist=True)
