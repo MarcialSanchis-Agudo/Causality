@@ -373,8 +373,10 @@ class Autoencoder_PL(pl.LightningModule):
     
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
-        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.lr_decay)
-        return [optimizer], [scheduler]
+        lr_scheduler = {
+            'scheduler': torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.lr_decay),
+            'monitor': 'val_loss'}
+        return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
 
     def reconstruct(self, dataset):
         ## Compute reconstruction and its accuracy
@@ -479,8 +481,10 @@ class VariationalAutoencoder_PL(Autoencoder_PL):
     
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, self.trainer.max_epochs, eta_min=self.learning_rate * 1e-3)
-        return [optimizer], [scheduler]
+        lr_scheduler = {
+            'scheduler': torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, self.trainer.max_epochs, eta_min=self.learning_rate * 1e-3),
+            'monitor': 'val_loss'}
+        return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
 
     @cr('VAE.reconstruct')
     def reconstruct(self, dataset):
