@@ -6,7 +6,7 @@ import matplotlib as plt
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
 
@@ -21,22 +21,25 @@ def create_results_folder(RESUDIR, echo=True):
             print(f"Folder already exists: {RESUDIR}")
 
 # Specify autoencoder parameters
-ptrain      = 0.8
-pvali       = 0.2
-batch_size  = 128
-nepochs     = 50
-nlayers     = 4
-channels    = 32
-latent_dim  = 10
-beta        = 10e-1
-beta_wmup   = 1000
-beta_start  = 30
-kernel_size = 4
-nlinear     = 256
-padding     = 1
-activations = [pyLOM.NN.silu(), pyLOM.NN.silu(), pyLOM.NN.silu(), pyLOM.NN.silu(), pyLOM.NN.silu(), pyLOM.NN.silu(), pyLOM.NN.silu(), pyLOM.NN.silu()]
-batch_norm  = False
-vae         = True
+ptrain        = 0.8
+pvali         = 0.2
+batch_size    = 128
+nepochs       = 1500
+nlayers       = 4
+channels      = 32
+latent_dim    = 4
+beta          = 1e-3
+beta_wmup     = 250
+beta_start    = 25
+kernel_size   = 4
+nlinear       = 128
+padding       = 1
+reduction     = 'mean'
+activations   = [pyLOM.NN.relu(), pyLOM.NN.relu(), pyLOM.NN.relu(), pyLOM.NN.relu(), pyLOM.NN.relu(), pyLOM.NN.relu(), pyLOM.NN.relu(), pyLOM.NN.relu()]
+learning_rate = 1e-4
+lr_decay      = 0.999
+batch_norm    = True
+vae           = True
 
 # Load pyLOM dataset and set up results output
 
@@ -91,14 +94,15 @@ encoder = pyLOM.NN.Encoder3D(nlayers, latent_dim, nx, ny, nz, dataset.num_channe
 decoder = pyLOM.NN.Decoder3D(nlayers, latent_dim, nx, ny, nz, dataset.num_channels, channels, kernel_size, padding, activations, nlinear, batch_norm, stride=2, dropout=0)
 
 VAE = pyLOM.NN.VariationalAutoencoder_PL(
-    latent_dim=latent_dim,
-    in_shape=(nx, ny, nz),
-    input_channels=dataset.num_channels,
-    betasch=betasch,
-    encoder=encoder,
-    decoder=decoder,
-    learning_rate=1e-4,
-    lr_decay=0.999
+    latent_dim     = latent_dim,
+    in_shape       = (nx, ny, nz),
+    input_channels = dataset.num_channels,
+    betasch        = betasch,
+    encoder        = encoder,
+    decoder        = decoder,
+    reduction      = reduction,
+    learning_rate  = learning_rate,
+    lr_decay       = lr_decay
 )
 print(VAE)
 
@@ -107,37 +111,42 @@ wandb_logger = WandbLogger(name=name, project='VAE_3D')
 wandb_logger.watch(VAE)
 
 early_stop_callback = EarlyStopping(
-    monitor='val_loss',
-    patience=50,
-    mode='min'
+    monitor  = 'val_loss',
+    patience = 20,
+    mode     = 'min'
 )
 
 checkpoint_callback = ModelCheckpoint(
-    monitor='val_loss',
-    dirpath=RESUDIR,
-    filename='VAE_{epoch:02d}_{val_loss:.2f}',
-    save_top_k=5,
-    mode='min'
+    monitor    = 'val_loss',
+    dirpath    = RESUDIR,
+    filename   = 'VAE_{epoch:02d}_{val_loss:.2f}',
+    save_top_k = 5,
+    mode       = 'min'
+)
+
+lr_monitor = LearningRateMonitor(
+    logging_interval = 'epoch'
 )
 
 # Train using multiple GPUs
 gpus = -1 if torch.cuda.is_available() else 0
 trainer = Trainer(
-    logger=wandb_logger,
-    max_epochs=nepochs,
-    devices=gpus,
-    num_nodes=1,
-    accelerator='auto',
-    strategy='ddp',
-    callbacks=[early_stop_callback, checkpoint_callback],
-    precision="16-mixed" if torch.cuda.is_available() else "32"
+    logger            = wandb_logger,
+    max_epochs        = nepochs,
+    devices           = gpus,
+    num_nodes         = 1,
+    accelerator       = 'auto',
+    strategy          = 'ddp_find_unused_parameters_true',
+    callbacks         = [checkpoint_callback, early_stop_callback, lr_monitor],
+    gradient_clip_val = 0.5,
+    precision         = 'bf16-mixed' if torch.cuda.is_available() else '32'
 )
 
 trainer.fit(model=VAE, train_dataloaders=trloader, val_dataloaders=valoader)
 
 ## Reconstruct dataset and compute accuracy
 rec  = VAE.reconstruct(dataset) # Returns (input channels, nx*ny, time)
-recdtset = pyLOM.NN.Dataset((rec), (nx, ny, nz))
+recdtset = pyLOM.NN.Dataset((rec,), (nx, ny, nz))
 recdtset.pad((nx, ny, nz))
 dataset.pad((nx, ny, nz))
 d.add_field('urec',1,recdtset[:,0,:,:].numpy().reshape((len(time),nx*ny*nz)).T)
