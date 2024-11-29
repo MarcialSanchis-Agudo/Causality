@@ -1,0 +1,25 @@
+# config.yaml
+program: sweep_VAE_MULTI.py
+method: bayes
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  batch_size:   
+    values: [16, 32, 64]
+  nepochs:
+    values: [800, 1200]
+  channels:
+    values: [16, 32, 64]
+  latent_dim: 
+    values: [3, 4, 5, 6]
+  nlinear: 
+    values: [64, 128, 256, 512]
+  beta:     
+    values: [1e-2, 1e-3, 1e-4]
+  beta_wmup: 
+    values: [250, 500]
+  beta_start:  
+    values: [50, 100]
+  learning_rate:
+    values: [1e-5, 1e-4]
