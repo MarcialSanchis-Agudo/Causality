@@ -107,9 +107,9 @@ def main():
 
 
     print('------------ LOADING DATA ----------------')
-    datapath_U = '/mimer/NOBACKUP/groups/kthmech/abhvis/Projects/UFLOW_data/obstacleNOTRIP_T_183_233_N5e/DATASET35e/U.mat'
-    datapath_V = '/mimer/NOBACKUP/groups/kthmech/abhvis/Projects/UFLOW_data/obstacleNOTRIP_T_183_233_N5e/DATASET35e/V.mat'
-    datapath_W = '/mimer/NOBACKUP/groups/kthmech/abhvis/Projects/UFLOW_data/obstacleNOTRIP_T_183_233_N5e/DATASET35e/W.mat'
+    datapath_U = '/mimer/NOBACKUP/groups/kthmech/abhvis/Projects/UFLOW_data/obstacleNOTRIP_T_233_283_N5e/DATASET38e/U.mat'
+    datapath_V = '/mimer/NOBACKUP/groups/kthmech/abhvis/Projects/UFLOW_data/obstacleNOTRIP_T_233_283_N5e/DATASET38e/V.mat'
+    datapath_W = '/mimer/NOBACKUP/groups/kthmech/abhvis/Projects/UFLOW_data/obstacleNOTRIP_T_233_283_N5e/DATASET38e/W.mat'
         
 
     file_U = mat73.loadmat(datapath_U)
@@ -242,9 +242,9 @@ def main():
 
     print(f"Dataset created", d)
     print("Ready to save data.")
-    m.save('/mimer/NOBACKUP/groups/kthmech/carlos/Datasets_3D/Obstacle_VAE/obstacle_3D_35.h5', nopartition=True)
+    m.save('/mimer/NOBACKUP/groups/kthmech/carlos/Datasets_3D/Obstacle_VAE/obstacle_3D_38.h5', nopartition=True)
     print("Mesh saved")
-    d.save('/mimer/NOBACKUP/groups/kthmech/carlos/Datasets_3D/Obstacle_VAE/obstacle_3D_35.h5', nopartition=True)
+    d.save('/mimer/NOBACKUP/groups/kthmech/carlos/Datasets_3D/Obstacle_VAE/obstacle_3D_38.h5', nopartition=True)
     print(" HDF5 file saved.")
 
 
