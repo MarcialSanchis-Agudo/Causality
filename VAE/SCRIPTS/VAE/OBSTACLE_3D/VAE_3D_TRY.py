@@ -5,13 +5,14 @@ import os
 import time
 import matplotlib as plt
 import torch
+import h5py
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
 from torch.utils.data import Dataset, random_split, DataLoader
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
-from src.dataset import LazyH5Dataset
+from src.dataset import MultiFileLazyH5Dataset
 
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
@@ -28,7 +29,7 @@ def create_results_folder(RESUDIR, echo=True):
 # Specify autoencoder parameters
 ptrain        = 0.8
 pvali         = 0.2
-batch_size    = 32
+batch_size    = 8
 nepochs       = 1500
 nlayers       = 4
 channels      = 64
@@ -48,7 +49,8 @@ vae           = True
 
 # Load pyLOM dataset and set up results output
 
-DATAFILE = ['/mimer/NOBACKUP/groups/kthmech/carlos/Datasets_3D/Obstacle_VAE/obstacle_3D_8.h5']
+DATAFILE = ['/mimer/NOBACKUP/groups/kthmech/carlos/Datasets_3D/Obstacle_VAE/obstacle_3D_8.h5',
+            '/mimer/NOBACKUP/groups/kthmech/carlos/Datasets_3D/Obstacle_VAE/obstacle_3D_9.h5']
 RESUDIR = f"vae_beta_{beta}_ld_{latent_dim}_batch_{batch_size}_nlinear_{nlinear}_test_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 VARIABLE_1 = 'VELOX'
 VARIABLE_2 = 'VELOY'
@@ -57,75 +59,73 @@ variables = (VARIABLE_1, VARIABLE_2, VARIABLE_3)
 create_results_folder(RESUDIR)
 name = f"VAE_3D_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
-lazy_dataset = LazyH5Dataset(DATAFILE, variable_names=variables)
-print("Lazy dataset created.")
-print("Mesh shape:", lazy_dataset.mesh_shape)
-print("Number of channels:", lazy_dataset.num_channels)
-if lazy_dataset.time is not None:
-    print("Time vector shape:", lazy_dataset.time.shape)
-else:
-    print("No time vector found.")
+print("Ready to create dataset")
+dataset = MultiFileLazyH5Dataset(DATAFILE, batch_size=batch_size)
+print("Total de muestras:", len(dataset))
+print(f"\nDataset tiene {len(dataset)} muestras.\n")
 
-# Test one sample
-sample0 = lazy_dataset[0]
-print("First sample shape:", sample0.shape)
+num_samples = 10
+times = []
 
-start = time.time()
-for i in range(5):
-    _ = lazy_dataset[i]
-print(f"Avg Sample Load Time: {(time.time() - start) / 5:.3f}s per sample")
+for i in range(num_samples):
+    start_time = time.perf_counter()
+    sample = dataset[i]
+    end_time = time.perf_counter() 
+    load_time = end_time - start_time
+    times.append(load_time)
+    print(f"⏱️ Tiempo de carga muestra {i}: {load_time:.4f} segundos")
 
-total_samples = len(lazy_dataset)
-train_size = int(ptrain * total_samples)
-valid_size = total_samples - train_size
-td_train, td_valid = random_split(lazy_dataset, [train_size, valid_size])
+avg_time = np.mean(times)
+print(f"\n🔥 Tiempo promedio de carga por muestra: {avg_time:.4f} segundos")
 
-print(f"Train split size: {len(td_train)}")
-print(f"Val split size: {len(td_valid)}")
+train_size = int(ptrain * len(dataset))
+val_size = len(dataset) - train_size
+train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-# DataLoaders (num_workers se puede ajustar; en este ejemplo 1)
-def worker_init_fn(worker_id):
-    print(f"Worker {worker_id} started.")
-    global file_cache
-    file_cache = {}
+nx, ny, nz = dataset.mesh_shape
+print(f"Mesh size: {nx}, {ny}, {nz}")
+num_channels = dataset.num_channels
+print(f"Number of channels: {num_channels}")
 
-num_workers = min(2, os.cpu_count() // torch.cuda.device_count())
-prefetch_factor = 16
+
+print(f"Train: {len(train_dataset)} samples, Val: {len(val_dataset)} samples")
+
+print(f"Ready to create train and validation dataloaders")
 
 trloader = DataLoader(
-    td_train,
+    train_dataset,
     batch_size=batch_size,
-    num_workers=num_workers,              
     shuffle=True,
-    worker_init_fn=worker_init_fn,
-    prefetch_factor=prefetch_factor,    
-    pin_memory=True,          
-    persistent_workers=True    
+    num_workers=2,
+    prefetch_factor=2,
+    pin_memory=True,
+    persistent_workers=True                       
 )
+
+print(f"Train dataloader created!")
 
 valoader = DataLoader(
-    td_valid,
+    val_dataset,
     batch_size=batch_size,
-    num_workers=num_workers,
-    worker_init_fn=worker_init_fn,
-    prefetch_factor=prefetch_factor,
+    shuffle=False,
+    prefetch_factor=2,
+    num_workers=1,
     pin_memory=True,
-    persistent_workers=True
+    persistent_workers=True                       
 )
 
-# Verificación de algunos batches
+print(f"Validation dataloader created!")
+
+batch_times = []
+prev_time = time.time()
 for batch_idx, batch in enumerate(trloader):
-    print(f"Batch {batch_idx + 1}:")
-    print("Tamaño del lote:", batch.shape)
+    cur_time = time.time()
+    load_time = cur_time - prev_time
+    batch_times.append(load_time)
+    print(f"Batch {batch_idx + 1} loaded in {load_time:.4f} seconds.")
+    prev_time = time.time()
     if batch_idx == 2:
         break
-
-# nx, ny, nz = data_module.nx, data_module.ny, data_module.nz
-# num_channels = data_module.nn_dataset.num_channels
-# Set the trainer for the variational autoencoder
-nx, ny, nz = lazy_dataset.mesh_shape
-num_channels = lazy_dataset.num_channels
-
 
 betasch = pyLOM.NN.betaLinearScheduler(0., beta, beta_start, beta_wmup)
 encoder = pyLOM.NN.Encoder3D(nlayers, latent_dim, nx, ny, nz, num_channels, channels, kernel_size, padding, activations, nlinear, batch_norm, stride=2, dropout=0, vae=vae)
@@ -174,14 +174,13 @@ trainer = Trainer(
     devices           = gpus,
     num_nodes         = 1,
     accelerator       = 'auto',
-    strategy          = 'ddp_find_unused_parameters_false',
+    strategy          = 'ddp_find_unused_parameters_true',
     callbacks         = [checkpoint_callback, early_stop_callback, lr_monitor],
     gradient_clip_val = 0.5,
     precision         = 'bf16-mixed' if torch.cuda.is_available() else '32'
 )
 
 trainer.fit(model=VAE, train_dataloaders=trloader, val_dataloaders=valoader)
-
 
 """
 ## Reconstruct dataset and compute accuracy
