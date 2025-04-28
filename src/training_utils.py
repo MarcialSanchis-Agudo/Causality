@@ -59,6 +59,9 @@ def light_cnn_model(input_shape):
     input_data = layers.Input(shape=input_shape)
     x = layers.Conv2D(32, (3,3), activation='relu', padding='same')(input_data)
     x = layers.Conv2D(64, (3,3), activation='relu', padding='same')(x)
+    x = layers.Conv2D(128, (3,3), activation='relu', padding='same')(x)
+    x = layers.Conv2D(256, (3,3), activation='relu', padding='same')(x)
+    x = layers.Conv2D(512, (3,3), activation='relu', padding='same')(x)
     x = layers.Conv2D(1, (3,3), activation='linear', padding='same')(x)
     
     model = tf.keras.models.Model(inputs=input_data, outputs=x)
@@ -71,6 +74,9 @@ def get_model(input_shape, output_shape=None):
     
     if prb_def == 'PODSuperResolution':
         return light_cnn_model(input_shape)
+    else:
+        from fcn import cnn_model
+        return cnn_model(input_shape, padding='same', pad_out=0)
     else:
         from fcn import cnn_model
         return cnn_model(input_shape, padding='same', pad_out=0)
