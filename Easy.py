@@ -4,7 +4,7 @@ Script for the encoder and decoder layer for full transformer
 
 import torch 
 import torch.nn.functional as F
-from    nns.attns import *
+from   self  import *
 from    torch           import nn 
 
 class PositionWiseFeedForward(nn.Module):
